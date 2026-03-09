@@ -271,13 +271,20 @@ export class RoverService {
     }
 
     if (this.fingerL && this.fingerR) {
+      const minRotation = 0;
+      const maxRotation = 1.87;
+
       if (this.keys['KeyI']) {
-        this.fingerL.rotation.x += armRotationSpeed * delta;
-        this.fingerR.rotation.x -= armRotationSpeed * delta;
+        if (this.fingerL.rotation.x < maxRotation) {
+          this.fingerL.rotation.x += armRotationSpeed * delta;
+          this.fingerR.rotation.x -= armRotationSpeed * delta;
+        }
       }
       if (this.keys['KeyK']) {
-        this.fingerL.rotation.x -= armRotationSpeed * delta;
-        this.fingerR.rotation.x += armRotationSpeed * delta;
+        if (this.fingerL.rotation.x > minRotation) {
+          this.fingerL.rotation.x -= armRotationSpeed * delta;
+          this.fingerR.rotation.x += armRotationSpeed * delta;
+        }
       }
     }
   }
@@ -319,18 +326,21 @@ export class RoverService {
   }
 
   private handleStonePickup(): void {
-    const isClosing = this.keys['KeyI'];
-    const isOpening = this.keys['KeyK'];
+    if (!this.fingerL || !this.fingerR) return;
 
-    if (isClosing && !this.heldStone) {
+    const currentRotation = this.fingerL.rotation.x;
+    const closeThreshold = 1.7;
+    const openThreshold = 0.5;
+
+    if (currentRotation >= closeThreshold && !this.heldStone && this.keys["KeyI"]) {
       this.pickupStone();
     }
 
-    if (isOpening && this.heldStone) {
+    if (currentRotation <= openThreshold && this.heldStone && this.keys["KeyK"]) {
       this.dropStone();
     }
 
-    if (this.heldStone && this.fingerL && this.fingerR) {
+    if (this.heldStone) {
       this.updateHeldStonePosition();
     }
   }
