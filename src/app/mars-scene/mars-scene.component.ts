@@ -62,9 +62,15 @@ export class MarsSceneComponent implements AfterViewInit, OnDestroy {
 
     // Services aufrufen
     const terrainMesh = this.terrainService.create(this.scene);
-    this.structuresService.create(this.scene, this.terrainService);
+    const collisionObjects = this.structuresService.create(this.scene, this.terrainService);
     this.lightingService.create(this.scene);
     this.roverService.create(this.scene);
+
+    // Kollisionsobjekte an Rover übergeben
+    this.roverService.setCollisionObjects(collisionObjects);
+
+    // Aufnehmbare Steine an Rover übergeben
+    this.roverService.setPickableStones(this.structuresService.getPickableStones());
 
         // GUI als letztes (braucht Referenzen auf andere Services)
         this.guiService.create(

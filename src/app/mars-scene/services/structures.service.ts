@@ -1,5 +1,6 @@
 import { Injectable } from '@angular/core';
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { TerrainService } from './terrain.service';
 
 /**
@@ -12,6 +13,7 @@ export class StructuresService {
     private meshes: THREE.Mesh[] = [];
     private geometries: THREE.BufferGeometry[] = [];
     private materials: THREE.Material[] = [];
+    private pickableStones: THREE.Object3D[] = [];
 
     // ====================================================================
     // Materialien (5+ verschiedene MeshStandardMaterials)
@@ -84,7 +86,8 @@ export class StructuresService {
     // Szene aufbauen
     // ====================================================================
 
-    create(scene: THREE.Scene, terrainService: TerrainService): void {
+    create(scene: THREE.Scene, terrainService: TerrainService): THREE.Object3D[] {
+        const collisionObjects: THREE.Object3D[] = [];
         const sphereRadius = 100;
         // Materialien erzeugen
         const dustMat = this.createDustMaterial();
@@ -118,6 +121,7 @@ export class StructuresService {
             mesh.castShadow = true;
             mesh.receiveShadow = true;
             this.meshes.push(mesh);
+            collisionObjects.push(mesh);
             scene.add(mesh);
         });
 
@@ -153,6 +157,7 @@ export class StructuresService {
 
         habitatGroup.position.copy(domeDir).multiplyScalar(sphereRadius + domeOffset);
         habitatGroup.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), domeDir);
+        collisionObjects.push(habitatGroup);
         scene.add(habitatGroup);
 
         // ------ 5–6: Basis-Module mit Solarpanels ------
@@ -189,6 +194,7 @@ export class StructuresService {
 
             modGroup.position.copy(dir).multiplyScalar(sphereRadius + groundOffset + 2.2);
             modGroup.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+            collisionObjects.push(modGroup);
             scene.add(modGroup);
         });
 
@@ -226,6 +232,7 @@ export class StructuresService {
 
         antGroup.position.copy(antDir).multiplyScalar(sphereRadius + antOffset);
         antGroup.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), antDir);
+        collisionObjects.push(antGroup);
         scene.add(antGroup);
 
         // ------ 8: Container-Einheit ------
@@ -237,6 +244,7 @@ export class StructuresService {
         boxMesh.position.copy(boxDir).multiplyScalar(sphereRadius + boxOffset + 1.5);
         boxMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), boxDir);
         boxMesh.castShadow = true;
+        collisionObjects.push(boxMesh);
         scene.add(boxMesh);
 
         // ------ 9: Forschungs-Ring ------
@@ -248,6 +256,7 @@ export class StructuresService {
         const platform = new THREE.Mesh(platformGeo, darkRockMat);
         platform.position.copy(ringDir).multiplyScalar(sphereRadius + ringOffset + 0.25);
         platform.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), ringDir);
+        collisionObjects.push(platform);
         scene.add(platform);
 
         const markerGeo = new THREE.RingGeometry(1, 1.5, 32);
@@ -256,7 +265,50 @@ export class StructuresService {
         marker.position.copy(ringDir).multiplyScalar(sphereRadius + ringOffset + 0.55);
         marker.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), ringDir);
         marker.rotateX(-Math.PI / 2);
+        collisionObjects.push(marker);
         scene.add(marker);
+
+        // ------ 10-11: Aufnehmbare Marssteine (GLB) ------
+        this.loadPickableStone('assets/Marsstein1.glb', scene, terrainService, { x: 15, z: 25 }, sphereRadius);
+        this.loadPickableStone('assets/Marsstein2.glb', scene, terrainService, { x: -20, z: 20 }, sphereRadius);
+
+        return collisionObjects;
+    }
+
+    private loadPickableStone(path: string, scene: THREE.Scene, terrainService: TerrainService, pos: { x: number, z: number }, sphereRadius: number): void {
+        const gltfLoader = new GLTFLoader();
+        gltfLoader.load(
+            path,
+            (gltf) => {
+                const stone = gltf.scene;
+                stone.userData['pickable'] = true; // Markieren als aufnehmbar
+
+                stone.traverse((child) => {
+                    if ((child as THREE.Mesh).isMesh) {
+                        child.castShadow = true;
+                        child.receiveShadow = true;
+                    }
+                });
+
+                const dir = new THREE.Vector3(pos.x, sphereRadius, pos.z).normalize();
+                const groundOffset = terrainService.getHeightAt(dir.x * sphereRadius, dir.y * sphereRadius, dir.z * sphereRadius);
+
+                stone.scale.set(2, 2, 2);
+                stone.position.copy(dir).multiplyScalar(sphereRadius + groundOffset);
+                stone.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+
+                this.pickableStones.push(stone);
+                scene.add(stone);
+            },
+            undefined,
+            (error) => {
+                console.error(`Fehler beim Laden von ${path}:`, error);
+            }
+        );
+    }
+
+    getPickableStones(): THREE.Object3D[] {
+        return this.pickableStones;
     }
 
     /** Aufräumen aller Geometrien und Materialien */

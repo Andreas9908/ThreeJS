@@ -28,6 +28,16 @@ export class RoverService {
   private wheelRotationSpeed = 5.0;
   private yOffset = 0;
 
+  private collisionObjects: THREE.Object3D[] = [];
+  private raycaster = new THREE.Raycaster();
+  private roverRadius = 3.0;
+
+  private pickableStones: THREE.Object3D[] = [];
+  private heldStone: THREE.Object3D | null = null;
+  private gripGroup: THREE.Group | null = null;
+  private pickupRange = 0.3;
+  private fingersWereClosed = false;
+
   constructor(private terrainService: TerrainService) {
     window.addEventListener('keydown', (e) => this.keys[e.code] = true);
     window.addEventListener('keyup', (e) => this.keys[e.code] = false);
@@ -38,9 +48,20 @@ export class RoverService {
       this.wheelRotationSpeed = moveSpeed;
     }
 
+  /** Setzt die Objekte, mit denen der Rover kollidieren kann */
+  public setCollisionObjects(objects: THREE.Object3D[]) {
+    this.collisionObjects = objects;
+  }
+
+  /** Setzt die aufnehmbaren Steine */
+  public setPickableStones(stones: THREE.Object3D[]) {
+    this.pickableStones = stones;
+  }
+
   create(scene: THREE.Scene): THREE.Group {
     this.group = new THREE.Group();
-    this.group.position.set(0, 102, 0);
+    // Spawnposition geändert: 30 Einheiten südlich vom Nordpol (wo die Kuppel ist)
+    this.group.position.set(0, 102, 30);
 
     scene.add(this.group);
 
@@ -119,6 +140,11 @@ export class RoverService {
     this.handleMovement(delta);
     this.handleCamera(delta);
     this.handleArm(delta);
+
+    // Matrizen aktualisieren, damit die Weltpositionen für das Aufnehmen von Steinen aktuell sind
+    this.group.updateMatrixWorld(true);
+
+    this.handleStonePickup();
   }
 
   private handleMovement(delta: number): void {
@@ -135,11 +161,23 @@ export class RoverService {
     }
 
     if (moveDir !== 0) {
+      // Speichere alte Position für Kollisionsrückgängig
+      const oldPosition = this.group.position.clone();
+      const oldQuaternion = this.group.quaternion.clone();
+
       this.group.translateZ(moveDir * this.moveSpeed * delta);
 
-      this.wheels.forEach(wheel => {
-        wheel.rotation.x += moveDir * this.wheelRotationSpeed * delta;
-      });
+      // Prüfe Kollision
+      if (this.checkCollision()) {
+        // Kollision erkannt - Position zurücksetzen
+        this.group.position.copy(oldPosition);
+        this.group.quaternion.copy(oldQuaternion);
+      } else {
+        // Keine Kollision - Räder drehen
+        this.wheels.forEach(wheel => {
+          wheel.rotation.x += moveDir * this.wheelRotationSpeed * delta;
+        });
+      }
     }
 
     const pos = this.group.position.clone();
@@ -259,7 +297,212 @@ export class RoverService {
     }
   }
 
+  /**
+   * Prüft ob der Rover mit einem der Kollisionsobjekte kollidiert.
+   * Verwendet Raycasting in 8 Richtungen um den Rover herum.
+   */
+  private checkCollision(): boolean {
+    if (this.collisionObjects.length === 0) return false;
 
+    const roverPos = this.group.position.clone();
+
+    // Prüfe in 8 Richtungen (Kreuz + Diagonalen) um den Rover
+    const directions = [
+      new THREE.Vector3(1, 0, 0),   // Rechts
+      new THREE.Vector3(-1, 0, 0),  // Links
+      new THREE.Vector3(0, 0, 1),   // Vorne
+      new THREE.Vector3(0, 0, -1),  // Hinten
+      new THREE.Vector3(1, 0, 1).normalize(),   // Vorne-Rechts
+      new THREE.Vector3(-1, 0, 1).normalize(),  // Vorne-Links
+      new THREE.Vector3(1, 0, -1).normalize(),  // Hinten-Rechts
+      new THREE.Vector3(-1, 0, -1).normalize(), // Hinten-Links
+    ];
+
+    for (const direction of directions) {
+      // Transformiere Richtung in Weltkoordinaten (relativ zur Rover-Rotation)
+      const worldDir = direction.clone().applyQuaternion(this.group.quaternion);
+
+      this.raycaster.set(roverPos, worldDir);
+      this.raycaster.far = this.roverRadius;
+
+      const intersects = this.raycaster.intersectObjects(this.collisionObjects, true);
+
+      if (intersects.length > 0 && intersects[0].distance < this.roverRadius) {
+        return true; // Kollision erkannt
+      }
+    }
+
+    return false; // Keine Kollision
+  }
+
+  /**
+   * Prüft ob die Finger geschlossen sind (Greif-Bewegung)
+   */
+  private areFingersClosing(): boolean {
+    return this.keys['KeyI']; // Taste I schließt die Finger
+  }
+
+  /**
+   * Überwacht kontinuierlich das Schließen der Finger für Aufnehmen/Ablegen
+   */
+  private handleStonePickup(): void {
+    const isClosing = this.keys['KeyI'];
+    const isOpening = this.keys['KeyK'];
+
+    // Stein aufnehmen, wenn 'I' gedrückt wird (und wir noch keinen halten)
+    if (isClosing && !this.heldStone) {
+      this.pickupStone();
+    }
+
+    // Stein ablegen, wenn 'K' gedrückt wird (und wir einen halten)
+    if (isOpening && this.heldStone) {
+      this.dropStone();
+    }
+
+    // Wenn ein Stein gehalten wird, aktualisiere seine Position kontinuierlich
+    if (this.heldStone && this.fingerL && this.fingerR) {
+      this.updateHeldStonePosition();
+    }
+  }
+
+  /**
+   * Aktualisiert die Position des gehaltenen Steins zwischen den Fingern
+   */
+  private updateHeldStonePosition(): void {
+    if (!this.heldStone || !this.fingerL || !this.fingerR || !this.armHandgelenk || !this.gripGroup) return;
+
+    // Wir rufen updateMatrixWorld für das Modell auf, um sicherzustellen, dass die Bone-Hierarchie aktuell ist
+    // Dies ist wichtig, wenn Animationen oder manuelle Gelenkbewegungen stattfinden.
+    if (this.model) this.model.updateMatrixWorld(true);
+
+    // Hole die Weltpositionen der Finger
+    const fingerLWorldPos = new THREE.Vector3();
+    const fingerRWorldPos = new THREE.Vector3();
+    this.fingerL.getWorldPosition(fingerLWorldPos);
+    this.fingerR.getWorldPosition(fingerRWorldPos);
+
+    // Berechne Mittelpunkt in Weltkoordinaten
+    const gripCenterWorld = new THREE.Vector3();
+    gripCenterWorld.addVectors(fingerLWorldPos, fingerRWorldPos).multiplyScalar(0.5);
+
+    // Konvertiere zu lokalen Koordinaten des Handgelenks
+    const handgelenkWorldPos = new THREE.Vector3();
+    this.armHandgelenk.getWorldPosition(handgelenkWorldPos);
+
+    const handgelenkInverse = new THREE.Matrix4();
+    handgelenkInverse.copy(this.armHandgelenk.matrixWorld).invert();
+
+    const localGripPos = gripCenterWorld.clone().applyMatrix4(handgelenkInverse);
+
+    // Setze Position der Grip-Gruppe
+    this.gripGroup.position.copy(localGripPos);
+
+    // Erzwinge Matrix-Update
+    this.gripGroup.updateMatrixWorld(true);
+  }
+
+  private pickupStone(): void {
+    if (!this.fingerL || !this.fingerR || !this.armHandgelenk) return;
+
+    // Berechne die Mitte zwischen den beiden Fingern in Weltkoordinaten
+    const gripCenter = new THREE.Vector3();
+    const fingerLPos = new THREE.Vector3();
+    const fingerRPos = new THREE.Vector3();
+
+    this.fingerL.getWorldPosition(fingerLPos);
+    this.fingerR.getWorldPosition(fingerRPos);
+    gripCenter.addVectors(fingerLPos, fingerRPos).multiplyScalar(0.5);
+
+    // Suche nach dem nächsten Stein in Reichweite
+    let closestStone: THREE.Object3D | null = null;
+    let closestDistance = this.pickupRange;
+
+    for (const stone of this.pickableStones) {
+      if (stone.userData['pickedUp']) continue;
+
+      // Hole die Weltposition des Steins
+      const stoneWorldPos = new THREE.Vector3();
+      stone.getWorldPosition(stoneWorldPos);
+
+      const distance = gripCenter.distanceTo(stoneWorldPos);
+      if (distance < closestDistance) {
+        closestStone = stone;
+        closestDistance = distance;
+      }
+    }
+
+    if (closestStone) {
+      this.heldStone = closestStone;
+      closestStone.userData['pickedUp'] = true;
+
+      console.log('Stein gefunden und wird aufgenommen:', closestStone);
+
+      // Speichere die ursprüngliche Skalierung des Steins
+      const originalScale = closestStone.scale.clone();
+      closestStone.userData['originalScale'] = originalScale;
+
+      // Erstelle eine Gruppe zwischen den Fingern
+      this.gripGroup = new THREE.Group();
+      this.armHandgelenk.add(this.gripGroup);
+
+      // Berechne die initiale Position zwischen den Fingern
+      const fingerLWorldPos = new THREE.Vector3();
+      const fingerRWorldPos = new THREE.Vector3();
+      this.fingerL.getWorldPosition(fingerLWorldPos);
+      this.fingerR.getWorldPosition(fingerRWorldPos);
+
+      const gripCenterWorld = new THREE.Vector3();
+      gripCenterWorld.addVectors(fingerLWorldPos, fingerRWorldPos).multiplyScalar(0.5);
+
+      // Konvertiere zu lokalen Koordinaten des Handgelenks
+      const handgelenkInverse = new THREE.Matrix4();
+      handgelenkInverse.copy(this.armHandgelenk.matrixWorld).invert();
+      const localGripPos = gripCenterWorld.clone().applyMatrix4(handgelenkInverse);
+
+      this.gripGroup.position.copy(localGripPos);
+
+    this.gripGroup.attach(closestStone);
+
+    closestStone.position.set(0, 0.14, 0);
+    closestStone.rotation.set(0, 0, 0);
+    closestStone.scale.copy(originalScale);
+
+      console.log('Stein aufgenommen!');
+    }
+  }
+
+  private dropStone(): void {
+    if (!this.heldStone || !this.gripGroup) return;
+
+    const stone = this.heldStone;
+
+    const worldPos = new THREE.Vector3();
+    const worldQuat = new THREE.Quaternion();
+    stone.getWorldPosition(worldPos);
+    stone.getWorldQuaternion(worldQuat);
+
+    // Hole die ursprüngliche Skalierung
+    const originalScale = stone.userData['originalScale'] || new THREE.Vector3(2, 2, 2);
+
+    // Stein zurück zur Szene
+    if (this.group.parent) {
+      this.group.parent.add(stone);
+    }
+
+    // Position, Rotation und Skalierung in Weltkoordinaten wiederherstellen
+    stone.position.copy(worldPos);
+    stone.quaternion.copy(worldQuat);
+    stone.scale.copy(originalScale);
+
+    // Entferne die Grip-Gruppe
+    this.gripGroup.removeFromParent();
+    this.gripGroup = null;
+
+    stone.userData['pickedUp'] = false;
+    this.heldStone = null;
+
+    console.log('Stein abgelegt!');
+  }
 
   getPosition(): THREE.Vector3 {
     return this.group.position;
