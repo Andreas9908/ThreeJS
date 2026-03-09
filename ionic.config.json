@@ -1,0 +1,7 @@
+{
+  "name": "ThreeJS",
+  "integrations": {
+    "capacitor": {}
+  },
+  "type": "angular-standalone"
+}
