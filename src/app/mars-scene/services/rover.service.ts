@@ -175,15 +175,13 @@ export class RoverService {
 
     const pos = this.group.position.clone();
     const radius = 100;
-    const height = this.terrainService.getHeightAt(pos.x, pos.y, pos.z);
-
     const sphereNormal = pos.length() > 0.001 ? pos.clone().normalize() : new THREE.Vector3(0, 1, 0);
 
     const terrainInfo = this.calculateTerrainNormal(pos, sphereNormal, radius);
     const terrainNormal = terrainInfo.normal;
-    const avgHeight = terrainInfo.avgHeight;
+    const groundHeight = terrainInfo.groundHeight;
 
-    this.group.position.copy(sphereNormal).multiplyScalar(radius + avgHeight - this.yOffset);
+    this.group.position.copy(sphereNormal).multiplyScalar(radius + groundHeight - this.yOffset);
 
     const currentForward = new THREE.Vector3(0, 0, 1).applyQuaternion(this.group.quaternion);
 
@@ -199,8 +197,8 @@ export class RoverService {
     this.group.quaternion.setFromRotationMatrix(matrix);
   }
 
-  private calculateTerrainNormal(pos: THREE.Vector3, sphereNormal: THREE.Vector3, radius: number): { normal: THREE.Vector3, avgHeight: number } {
-    const epsilon = 1.5;
+  private calculateTerrainNormal(pos: THREE.Vector3, sphereNormal: THREE.Vector3, radius: number): { normal: THREE.Vector3, groundHeight: number } {
+    const epsilon = 0.02;
 
     const tangent1 = new THREE.Vector3();
     const tangent2 = new THREE.Vector3();
@@ -234,9 +232,7 @@ export class RoverService {
       normal.negate();
     }
 
-    const avgHeight = (h0 + h1 + h2 + h3 + h4) / 5;
-
-    return { normal, avgHeight };
+    return { normal, groundHeight: h0 };
   }
 
   private handleCamera(delta: number): void {

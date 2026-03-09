@@ -24,20 +24,15 @@ export class TerrainService {
         this.extractHeightData(tex.image as HTMLImageElement);
       }
     });
-
-    const detailColorMap = this.generateDetailColorTexture(2048);
-    const detailNormalMap = this.generateDetailNormalTexture(2048);
+    const normalMap = this.loadTexture(loader, 'assets/textures/mars-normalmap.png', false);
 
     this.material = new THREE.ShaderMaterial({
       uniforms: {
         uColorMap: { value: colorMap },
         uHeightMap: { value: heightMap },
-        uDetailColor: { value: detailColorMap },
-        uDetailNormal: { value: detailNormalMap },
+        uNormalMap: { value: normalMap },
         uDisplacementScale: { value: this.displacementScale },
-        uDetailTiling: { value: 45.0 },
-        uDetailStrength: { value: 0.8 },
-        uNormalStrength: { value: 5.0 },
+        uNormalStrength: { value: 1.5 },
         uRoughness: { value: 0.92 },
         uMetalness: { value: 0.05 },
 
@@ -83,7 +78,13 @@ export class TerrainService {
     const ny = y / length;
     const nz = z / length;
 
-    const u = 0.5 + Math.atan2(nx, nz) / (2 * Math.PI);
+    // Match THREE.SphereGeometry UV mapping:
+    // x = -cos(phi) * sin(theta), z = sin(phi) * sin(theta), u = phi / (2*pi)
+    let phi = Math.atan2(nz, -nx);
+    if (phi < 0) {
+      phi += Math.PI * 2;
+    }
+    const u = phi / (2 * Math.PI);
     const v = 0.5 - Math.asin(ny) / Math.PI;
 
     const cu = Math.max(0, Math.min(0.999, u));
@@ -157,11 +158,8 @@ export class TerrainService {
     return /* glsl */ `
       uniform sampler2D uColorMap;
       uniform sampler2D uHeightMap;
-      uniform sampler2D uDetailColor;
-      uniform sampler2D uDetailNormal;
+      uniform sampler2D uNormalMap;
 
-      uniform float uDetailTiling;
-      uniform float uDetailStrength;
       uniform float uNormalStrength;
       uniform float uRoughness;
       uniform float uMetalness;
@@ -196,20 +194,13 @@ export class TerrainService {
       void main() {
         vec3 baseColor = texture2D(uColorMap, vUv).rgb;
 
-        vec2 detailUV = vUv * uDetailTiling;
-
-        vec3 detailColor = texture2D(uDetailColor, detailUV).rgb;
-
-        vec3 mixedColor = baseColor * (1.0 + (detailColor - 0.5) * uDetailStrength * 2.0);
-        mixedColor = clamp(mixedColor, 0.0, 1.0);
-
-        vec3 detailNorm = texture2D(uDetailNormal, detailUV).rgb;
-        vec3 normal = perturbNormal(vNormal, detailNorm, uNormalStrength, vObjectPosition);
+        vec3 normalFromMap = texture2D(uNormalMap, vUv).rgb;
+        vec3 normal = perturbNormal(vNormal, normalFromMap, uNormalStrength, vObjectPosition);
 
         float NdotL = max(dot(normal, uSunDirection), 0.0);
-        vec3 diffuse = mixedColor * uSunColor * NdotL * uSunIntensity;
+        vec3 diffuse = baseColor * uSunColor * NdotL * uSunIntensity;
 
-        vec3 ambient = mixedColor * uAmbientColor;
+        vec3 ambient = baseColor * uAmbientColor;
 
         vec3 halfDir = normalize(uSunDirection + vViewDir);
         float NdotH = max(dot(normal, halfDir), 0.0);
@@ -234,162 +225,6 @@ export class TerrainService {
         gl_FragColor = vec4(finalColor, 1.0);
       }
     `;
-  }
-
-  private generateDetailColorTexture(size: number): THREE.Texture {
-    const canvas = document.createElement('canvas');
-    canvas.width = size;
-    canvas.height = size;
-    const ctx = canvas.getContext('2d')!;
-
-    ctx.fillStyle = '#8B5E3C';
-    ctx.fillRect(0, 0, size, size);
-
-    const imgData = ctx.getImageData(0, 0, size, size);
-    const data = imgData.data;
-
-    for (let i = 0; i < data.length; i += 4) {
-      const x = (i / 4) % size;
-      const y = Math.floor((i / 4) / size);
-
-      let noise = 0;
-      noise += this.fbmNoise(x, y, size, 4, 0.5);
-
-      const r = 140 + noise * 60 + (Math.random() - 0.5) * 20;
-      const g = 85 + noise * 35 + (Math.random() - 0.5) * 12;
-      const b = 50 + noise * 20 + (Math.random() - 0.5) * 8;
-
-      data[i] = Math.max(0, Math.min(255, r));
-      data[i + 1] = Math.max(0, Math.min(255, g));
-      data[i + 2] = Math.max(0, Math.min(255, b));
-      data[i + 3] = 255;
-    }
-
-    for (let i = 0; i < size * size * 0.002; i++) {
-      const px = Math.floor(Math.random() * size);
-      const py = Math.floor(Math.random() * size);
-      const radius = 1 + Math.random() * 3;
-      const brightness = 0.6 + Math.random() * 0.4;
-
-      for (let dx = -radius; dx <= radius; dx++) {
-        for (let dy = -radius; dy <= radius; dy++) {
-          if (dx * dx + dy * dy <= radius * radius) {
-            const sx = ((px + dx) % size + size) % size;
-            const sy = ((py + dy) % size + size) % size;
-            const idx = (sy * size + sx) * 4;
-            const dist = Math.sqrt(dx * dx + dy * dy) / radius;
-            const falloff = 1.0 - dist * dist;
-
-            data[idx] = Math.min(255, data[idx] * brightness * (1 + falloff * 0.3));
-            data[idx + 1] = Math.min(255, data[idx + 1] * brightness * (1 + falloff * 0.2));
-            data[idx + 2] = Math.min(255, data[idx + 2] * brightness * (1 + falloff * 0.15));
-          }
-        }
-      }
-    }
-
-    for (let i = 0; i < 80; i++) {
-      let cx = Math.random() * size;
-      let cy = Math.random() * size;
-      let angle = Math.random() * Math.PI * 2;
-      const len = 20 + Math.random() * 100;
-      const steps = Math.floor(len);
-
-      for (let s = 0; s < steps; s++) {
-        const sx = ((Math.floor(cx)) % size + size) % size;
-        const sy = ((Math.floor(cy)) % size + size) % size;
-        const idx = (sy * size + sx) * 4;
-        data[idx] = Math.max(0, data[idx] * 0.7);
-        data[idx + 1] = Math.max(0, data[idx + 1] * 0.7);
-        data[idx + 2] = Math.max(0, data[idx + 2] * 0.7);
-
-        angle += (Math.random() - 0.5) * 0.5;
-        cx += Math.cos(angle);
-        cy += Math.sin(angle);
-      }
-    }
-
-    ctx.putImageData(imgData, 0, 0);
-
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.wrapS = THREE.RepeatWrapping;
-    texture.wrapT = THREE.RepeatWrapping;
-    texture.magFilter = THREE.LinearFilter;
-    texture.minFilter = THREE.LinearMipmapLinearFilter;
-    texture.generateMipmaps = true;
-    texture.anisotropy = 16;
-    this.textures.push(texture);
-    return texture;
-  }
-
-  private generateDetailNormalTexture(size: number): THREE.Texture {
-    const canvas = document.createElement('canvas');
-    canvas.width = size;
-    canvas.height = size;
-    const ctx = canvas.getContext('2d')!;
-
-    const heightData = new Float32Array(size * size);
-
-    for (let y = 0; y < size; y++) {
-      for (let x = 0; x < size; x++) {
-        let h = 0;
-        h += this.fbmNoise(x, y, size, 6, 0.55) * 0.5;
-
-        const stoneNoise = this.fbmNoise(x * 3.7, y * 3.7, size, 3, 0.6);
-        h += stoneNoise * 0.3;
-
-        h += (Math.random() - 0.5) * 0.05;
-
-        heightData[y * size + x] = h;
-      }
-    }
-
-    const imgData = ctx.createImageData(size, size);
-    const data = imgData.data;
-    const strength = 2.0;
-
-    for (let y = 0; y < size; y++) {
-      for (let x = 0; x < size; x++) {
-        const idx = y * size + x;
-
-        const xp = ((x + 1) % size);
-        const xm = ((x - 1 + size) % size);
-        const yp = ((y + 1) % size);
-        const ym = ((y - 1 + size) % size);
-
-        const left = heightData[y * size + xm];
-        const right = heightData[y * size + xp];
-        const up = heightData[ym * size + x];
-        const down = heightData[yp * size + x];
-
-        const dx = (left - right) * strength;
-        const dy = (up - down) * strength;
-        const dz = 1.0;
-
-        const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
-        const nx = dx / len;
-        const ny = dy / len;
-        const nz = dz / len;
-
-        const pixIdx = idx * 4;
-        data[pixIdx] = Math.floor((nx * 0.5 + 0.5) * 255);
-        data[pixIdx + 1] = Math.floor((ny * 0.5 + 0.5) * 255);
-        data[pixIdx + 2] = Math.floor((nz * 0.5 + 0.5) * 255);
-        data[pixIdx + 3] = 255;
-      }
-    }
-
-    ctx.putImageData(imgData, 0, 0);
-
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.wrapS = THREE.RepeatWrapping;
-    texture.wrapT = THREE.RepeatWrapping;
-    texture.magFilter = THREE.LinearFilter;
-    texture.minFilter = THREE.LinearMipmapLinearFilter;
-    texture.generateMipmaps = true;
-    texture.anisotropy = 16;
-    this.textures.push(texture);
-    return texture;
   }
 
   private fbmNoise(x: number, y: number, size: number, octaves: number, persistence: number): number {

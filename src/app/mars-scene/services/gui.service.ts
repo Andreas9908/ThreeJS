@@ -62,6 +62,19 @@ export class GuiService {
             });
         fogFolder.open();
 
+        if (terrainService) {
+            const terrainFolder = this.gui.addFolder('Gelände');
+            const terrainParams = {
+                normalStrength: terrainService.getMaterial().uniforms['uNormalStrength'].value
+            };
+            terrainFolder.add(terrainParams, 'normalStrength', 0, 5, 0.1)
+                .name('Normalen-Stärke')
+                .onChange((val: number) => {
+                    terrainService.getMaterial().uniforms['uNormalStrength'].value = val;
+                });
+            terrainFolder.open();
+        }
+
         if (roverService) {
             const roverFolder = this.gui.addFolder('Rover');
 
