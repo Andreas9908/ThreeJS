@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import * as dat from 'dat.gui';
 import { LightingService } from './lighting.service';
 import { TerrainService } from './terrain.service';
+import { RoverService } from './rover.service';
 
 /**
  * GuiService – Erstellt ein dat.gui Panel zur Echtzeit-Steuerung von:
@@ -18,19 +19,18 @@ export class GuiService {
     create(
         scene: THREE.Scene,
         lightingService: LightingService,
-        terrainService?: TerrainService
+        terrainService?: TerrainService,
+        roverService?: RoverService
     ): void {
         this.gui = new dat.GUI({ width: 320 });
         this.gui.domElement.style.position = 'absolute';
         this.gui.domElement.style.top = '10px';
         this.gui.domElement.style.right = '10px';
 
-        // ====== Beleuchtung ======
-        const lightFolder = this.gui.addFolder('☀️ Beleuchtung');
+        const lightFolder = this.gui.addFolder('Beleuchtung');
         const lightParams = {
             sunIntensity: lightingService.sunLight.intensity,
-            baseLightsIntensity: lightingService.baseLights[0]?.intensity ?? 1.5,
-            spotLightIntensity: lightingService.spotLight.intensity,
+            baseLightsIntensity: lightingService.baseLights[0]?.intensity ?? 1.5
         };
         lightFolder.add(lightParams, 'sunIntensity', 0, 5, 0.1)
             .name('Sonne')
@@ -42,15 +42,9 @@ export class GuiService {
             .onChange((val: number) => {
                 lightingService.baseLights.forEach(l => l.intensity = val);
             });
-        lightFolder.add(lightParams, 'spotLightIntensity', 0, 5, 0.1)
-            .name('Rover-Spot')
-            .onChange((val: number) => {
-                lightingService.spotLight.intensity = val;
-            });
         lightFolder.open();
 
-        // ====== Nebel (FogExp2) ======
-        const fogFolder = this.gui.addFolder('🌫️ Nebel');
+        const fogFolder = this.gui.addFolder('Nebel');
         const fogParams = {
             density: (scene.fog as THREE.FogExp2)?.density ?? 0.008,
             color: '#' + ((scene.fog as THREE.FogExp2)?.color?.getHexString() ?? '331a0d'),
@@ -68,15 +62,28 @@ export class GuiService {
                 if (scene.fog instanceof THREE.FogExp2) {
                     scene.fog.color.set(val);
                 }
-                // Hintergrundfarbe synchronisieren
                 if (scene.background instanceof THREE.Color) {
                     scene.background.set(val);
                 }
             });
         fogFolder.open();
+
+        if (roverService) {
+            const roverFolder = this.gui.addFolder('Rover');
+
+            const roverParams = {
+                speed: 5.0
+            };
+            roverFolder.add(roverParams, 'speed', 0.5, 15, 0.5)
+                .name('Geschwindigkeit')
+                .onChange((val: number) => {
+                    roverService.setMoveSpeed(val);
+                });
+            roverFolder.open();
+        }
+
     }
 
-    /** dat.gui entfernen */
     dispose(): void {
         this.gui?.destroy();
     }

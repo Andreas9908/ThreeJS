@@ -3,13 +3,6 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { TerrainService } from './terrain.service';
 
-/**
- * RoverService – Platzhalter für den Mars-Rover.
- *
- * Aktuell wird ein einfacher Box-Mesh als Platzhalter gerendert.
- * Sobald ein Blender-Modell (.glb) vorliegt, kann der auskommentierte
- * GLTFLoader-Code aktiviert werden.
- */
 @Injectable({ providedIn: 'root' })
 export class RoverService {
 
@@ -17,7 +10,6 @@ export class RoverService {
   private model?: THREE.Object3D;
   private mixer?: THREE.AnimationMixer;
 
-  // Rover Teile
   private wheels: THREE.Object3D[] = [];
   private kameraZylinder?: THREE.Object3D;
   private kameraKopf?: THREE.Object3D;
@@ -29,10 +21,8 @@ export class RoverService {
   private fingerL?: THREE.Object3D;
   private fingerR?: THREE.Object3D;
 
-  // Steuerungszustand
   private keys: { [key: string]: boolean } = {};
 
-  // Bewegungswerte
   private moveSpeed = 5.0;
   private turnSpeed = 2.0;
   private wheelRotationSpeed = 5.0;
@@ -42,6 +32,11 @@ export class RoverService {
     window.addEventListener('keydown', (e) => this.keys[e.code] = true);
     window.addEventListener('keyup', (e) => this.keys[e.code] = false);
   }
+
+  public setMoveSpeed(moveSpeed: number) {
+      this.moveSpeed = moveSpeed;
+      this.wheelRotationSpeed = moveSpeed;
+    }
 
   create(scene: THREE.Scene): THREE.Group {
     this.group = new THREE.Group();
@@ -92,11 +87,14 @@ export class RoverService {
           });
         }
 
-        // Bounding Box berechnen, bevor das Modell der Gruppe (die schon positioniert ist) hinzugefügt wird
-        // Wenn es bereits in der Gruppe wäre, die bei (0, 102, 0) steht,
-        // würde box.min.y etwa 101-102 sein und yOffset negativ werden!
+
         const box = new THREE.Box3().setFromObject(this.model);
-        this.yOffset = -box.min.y;
+        // Kleiner Abzug (0.05) damit die Räder minimal einsinken und nicht schweben
+        this.yOffset = -box.min.y - 0.05;
+
+        // Verschiebe das Modell so, dass die Unterseite (Räder) bei y=0 in der lokalen Gruppe liegen
+        // Dadurch rotiert der Rover um seinen Bodenkontaktpunkt statt um sein Zentrum.
+        this.model.position.y = this.yOffset;
 
         this.group.add(this.model);
       },
@@ -132,63 +130,54 @@ export class RoverService {
     if (this.keys['KeyA']) turnDir += 1;
     if (this.keys['KeyD']) turnDir -= 1;
 
-    // Drehung (um die eigene Hochachse)
     if (turnDir !== 0) {
       this.group.rotateY(turnDir * this.turnSpeed * delta);
     }
 
-    // Bewegung (in Blickrichtung)
     if (moveDir !== 0) {
       this.group.translateZ(moveDir * this.moveSpeed * delta);
 
-      // Räder drehen
       this.wheels.forEach(wheel => {
         wheel.rotation.x += moveDir * this.wheelRotationSpeed * delta;
       });
     }
 
-    // --- Auf Oberfläche der Mars-Kugel snappen ---
     const pos = this.group.position.clone();
-    const radius = 100; // Basisradius der Marskugel
+    const radius = 100;
     const height = this.terrainService.getHeightAt(pos.x, pos.y, pos.z);
 
     const sphereNormal = pos.length() > 0.001 ? pos.clone().normalize() : new THREE.Vector3(0, 1, 0);
 
-    // Gelände-Normale berechnen für bessere Ausrichtung an Krümmung und Steigung
-    const terrainNormal = this.calculateTerrainNormal(pos, sphereNormal, radius);
+    const terrainInfo = this.calculateTerrainNormal(pos, sphereNormal, radius);
+    const terrainNormal = terrainInfo.normal;
+    const avgHeight = terrainInfo.avgHeight;
 
-    // Neue Position auf der Oberfläche (Radius + lokaler Höhen-Offset + Rover-Höhen-Offset)
-    this.group.position.copy(sphereNormal).multiplyScalar(radius + height + this.yOffset);
+    // Setze die Position der Gruppe exakt auf die Geländeoberfläche (Durchschnittshöhe für Stabilität)
+    // Ziehe yOffset ab, da das Modell innerhalb der Gruppe bereits nach oben verschoben ist
+    this.group.position.copy(sphereNormal).multiplyScalar(radius + avgHeight - this.yOffset);
 
-    // Ausrichtung an die Gelände-Normale anpassen
-    // Wir behalten die aktuelle Blickrichtung bei, richten aber die Up-Achse neu aus
     const currentForward = new THREE.Vector3(0, 0, 1).applyQuaternion(this.group.quaternion);
 
-    // Orthogonale Basis berechnen:
-    // 1. Right ist Kreuzprodukt aus Normal und Forward
     const right = new THREE.Vector3().crossVectors(terrainNormal, currentForward).normalize();
 
-    // Falls Forward und Normal parallel sind (unwahrscheinlich), brauchen wir einen Fallback
     if (right.lengthSq() < 0.0001) {
         right.set(1, 0, 0).applyQuaternion(this.group.quaternion);
     }
 
-    // 2. Echtes Forward ist Kreuzprodukt aus Right und Normal
     const forward = new THREE.Vector3().crossVectors(right, terrainNormal).normalize();
 
-    // Matrix aus den drei Achsen bauen und als Rotation setzen
     const matrix = new THREE.Matrix4().makeBasis(right, terrainNormal, forward);
     this.group.quaternion.setFromRotationMatrix(matrix);
   }
 
-  /** Berechnet die lokale Oberflächennormale des Terrains */
-  private calculateTerrainNormal(pos: THREE.Vector3, sphereNormal: THREE.Vector3, radius: number): THREE.Vector3 {
-    const epsilon = 0.2; // Messabstand für Steigungsberechnung
+  private calculateTerrainNormal(pos: THREE.Vector3, sphereNormal: THREE.Vector3, radius: number): { normal: THREE.Vector3, avgHeight: number } {
+    // Ein Epsilon, das etwa der Größe des Rovers entspricht für stabile Neigung
+    const epsilon = 1.5;
 
-    // Hilfsvektoren für Tangenten
     const tangent1 = new THREE.Vector3();
     const tangent2 = new THREE.Vector3();
 
+    // Basis-Tangenten auf der Kugeloberfläche berechnen
     if (Math.abs(sphereNormal.y) < 0.9) {
       tangent1.set(0, 1, 0).cross(sphereNormal).normalize();
     } else {
@@ -196,20 +185,35 @@ export class RoverService {
     }
     tangent2.copy(sphereNormal).cross(tangent1).normalize();
 
-    // Drei Punkte auf dem Gelände samplen
-    const getPoint = (dir: THREE.Vector3) => {
-      const h = this.terrainService.getHeightAt(dir.x, dir.y, dir.z);
-      return dir.clone().multiplyScalar(radius + h);
-    };
+    const getHeight = (dir: THREE.Vector3) => this.terrainService.getHeightAt(dir.x, dir.y, dir.z);
 
-    const p0 = getPoint(sphereNormal);
-    const p1 = getPoint(sphereNormal.clone().add(tangent1.multiplyScalar(epsilon)).normalize());
-    const p2 = getPoint(sphereNormal.clone().add(tangent2.multiplyScalar(epsilon)).normalize());
+    // 5 Punkte abfragen: Mitte + 4 Punkte im Kreuz (vorne, hinten, links, rechts)
+    const h0 = getHeight(sphereNormal);
+    const h1 = getHeight(sphereNormal.clone().add(tangent1.clone().multiplyScalar(epsilon)).normalize());
+    const h2 = getHeight(sphereNormal.clone().add(tangent1.clone().multiplyScalar(-epsilon)).normalize());
+    const h3 = getHeight(sphereNormal.clone().add(tangent2.clone().multiplyScalar(epsilon)).normalize());
+    const h4 = getHeight(sphereNormal.clone().add(tangent2.clone().multiplyScalar(-epsilon)).normalize());
 
-    const v1 = p1.sub(p0);
-    const v2 = p2.sub(p0);
+    const p1 = sphereNormal.clone().add(tangent1.clone().multiplyScalar(epsilon)).normalize().multiplyScalar(radius + h1);
+    const p2 = sphereNormal.clone().add(tangent1.clone().multiplyScalar(-epsilon)).normalize().multiplyScalar(radius + h2);
+    const p3 = sphereNormal.clone().add(tangent2.clone().multiplyScalar(epsilon)).normalize().multiplyScalar(radius + h3);
+    const p4 = sphereNormal.clone().add(tangent2.clone().multiplyScalar(-epsilon)).normalize().multiplyScalar(radius + h4);
 
-    return v1.cross(v2).normalize();
+    // Vektoren aufspannen (Links->Rechts und Hinten->Vorne)
+    const vX = p1.sub(p2);
+    const vZ = p3.sub(p4);
+
+    // Kreuzprodukt für die Normale
+    const normal = new THREE.Vector3().crossVectors(vX, vZ).normalize();
+
+    // Sicherstellen, dass die Normale nach außen zeigt (weg vom Planetenkern)
+    if (normal.dot(sphereNormal) < 0) {
+      normal.negate();
+    }
+
+    const avgHeight = (h0 + h1 + h2 + h3 + h4) / 5;
+
+    return { normal, avgHeight };
   }
 
   private handleCamera(delta: number): void {
@@ -261,7 +265,6 @@ export class RoverService {
     return this.group.position;
   }
 
-  /** Aufräumen */
   dispose(): void {
     if (this.model) {
       this.model.traverse((child) => {

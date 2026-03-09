@@ -70,7 +70,8 @@ export class MarsSceneComponent implements AfterViewInit, OnDestroy {
         this.guiService.create(
             this.scene,
             this.lightingService,
-            this.terrainService
+            this.terrainService,
+            this.roverService
         );
 
         // Sterne im Hintergrund
