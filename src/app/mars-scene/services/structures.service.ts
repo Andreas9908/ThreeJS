@@ -3,10 +3,6 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { TerrainService } from './terrain.service';
 
-/**
- * StructuresService – Erstellt 10+ verschiedene Geometrien für die Mars-Basis.
- * Jede Struktur wird mit einem passenden Material versehen und positioniert.
- */
 @Injectable({ providedIn: 'root' })
 export class StructuresService {
 
@@ -16,10 +12,10 @@ export class StructuresService {
     private pickableStones: THREE.Object3D[] = [];
 
     // ====================================================================
-    // Materialien (5+ verschiedene MeshStandardMaterials)
+    // Materialien
     // ====================================================================
 
-    /** 1. Oxidierter Mars-Staub (Felsen) */
+    /** 1. Felsen */
     private createDustMaterial(): THREE.MeshStandardMaterial {
         const mat = new THREE.MeshStandardMaterial({
             color: 0x8B4513,
@@ -31,7 +27,7 @@ export class StructuresService {
         return mat;
     }
 
-    /** 2. Gebürstetes Metall (Basis-Strukturen) */
+    /** 2. Metall (Basis-Strukturen) */
     private createMetalMaterial(): THREE.MeshStandardMaterial {
         const mat = new THREE.MeshStandardMaterial({
             color: 0xCCCCCC,
@@ -89,14 +85,13 @@ export class StructuresService {
     create(scene: THREE.Scene, terrainService: TerrainService): THREE.Object3D[] {
         const collisionObjects: THREE.Object3D[] = [];
         const sphereRadius = 100;
-        // Materialien erzeugen
         const dustMat = this.createDustMaterial();
         const metalMat = this.createMetalMaterial();
         const glassMat = this.createGlassMaterial();
         const darkRockMat = this.createDarkRockMaterial();
         const antennaMat = this.createAntennaMaterial();
 
-        // ------ 1–3: Icosahedron-Felsen (3×) ------
+        // ------ 1–3: Felsen ------
         const rockPositions = [
             { x: -25, z: -15, scale: 3.5 },
             { x: 18, z: -30, scale: 2.0 },
@@ -125,7 +120,7 @@ export class StructuresService {
             scene.add(mesh);
         });
 
-        // ------ 4: Habitat-Kuppel Komplex ------
+        // ------ 4: Kuppel ------
         const habitatGroup = new THREE.Group();
         const domeDir = new THREE.Vector3(0, 1, 0); // Nordpol
         const domeOffset = terrainService.getHeightAt(0, sphereRadius, 0);
@@ -143,24 +138,12 @@ export class StructuresService {
         baseRingMesh.position.y = 0.5;
         habitatGroup.add(baseRingMesh);
 
-        // Stützen (Legs)
-        const legGeo = new THREE.BoxGeometry(0.8, 3, 0.8);
-        this.geometries.push(legGeo);
-        for (let i = 0; i < 4; i++) {
-            const angle = (i / 4) * Math.PI * 2;
-            const leg = new THREE.Mesh(legGeo, metalMat);
-            leg.position.set(Math.cos(angle) * 5, -1, Math.sin(angle) * 5);
-            leg.rotation.z = Math.cos(angle) * 0.2;
-            leg.rotation.x = Math.sin(angle) * 0.2;
-            habitatGroup.add(leg);
-        }
-
         habitatGroup.position.copy(domeDir).multiplyScalar(sphereRadius + domeOffset);
         habitatGroup.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), domeDir);
         collisionObjects.push(habitatGroup);
         scene.add(habitatGroup);
 
-        // ------ 5–6: Basis-Module mit Solarpanels ------
+        // ------ 5–6: Boxen mit Solarpanels ------
         const modulePositions = [
             { x: -10, z: 5 },
             { x: 10, z: 5 },
@@ -173,7 +156,7 @@ export class StructuresService {
             const bodyGeo = new THREE.CylinderGeometry(2.2, 2.2, 5, 16);
             this.geometries.push(bodyGeo);
             const body = new THREE.Mesh(bodyGeo, metalMat);
-            body.rotation.z = Math.PI / 2; // Horizontal liegend
+            body.rotation.z = Math.PI / 2;
             modGroup.add(body);
 
             // Solarpanels
@@ -198,7 +181,7 @@ export class StructuresService {
             scene.add(modGroup);
         });
 
-        // ------ 7: Fortschrittliche Antenne ------
+        // ------ 7: Antenne ------
         const antGroup = new THREE.Group();
         const antDir = new THREE.Vector3(12, sphereRadius, -5).normalize();
         const antOffset = terrainService.getHeightAt(antDir.x * sphereRadius, antDir.y * sphereRadius, antDir.z * sphereRadius);
@@ -209,7 +192,7 @@ export class StructuresService {
         mast.position.y = 5;
         antGroup.add(mast);
 
-        // Satellitenschüssel (Dish)
+        // Satellitenschüssel
         const dishGeo = new THREE.SphereGeometry(2, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2);
         this.geometries.push(dishGeo);
         const dish = new THREE.Mesh(dishGeo, metalMat);
@@ -217,7 +200,7 @@ export class StructuresService {
         dish.rotation.x = -Math.PI / 4;
         antGroup.add(dish);
 
-        // Blinkendes Licht an der Spitze
+        // Blinkendes Licht
         const lightGeo = new THREE.SphereGeometry(0.3, 8, 8);
         this.geometries.push(lightGeo);
         const lightMat = new THREE.MeshStandardMaterial({
@@ -235,7 +218,7 @@ export class StructuresService {
         collisionObjects.push(antGroup);
         scene.add(antGroup);
 
-        // ------ 8: Container-Einheit ------
+        // ------ 8: Container ------
         const boxGeo = new THREE.BoxGeometry(4, 3, 6);
         this.geometries.push(boxGeo);
         const boxMesh = new THREE.Mesh(boxGeo, metalMat);
@@ -247,28 +230,7 @@ export class StructuresService {
         collisionObjects.push(boxMesh);
         scene.add(boxMesh);
 
-        // ------ 9: Forschungs-Ring ------
-        const ringDir = new THREE.Vector3(25, sphereRadius, 15).normalize();
-        const ringOffset = terrainService.getHeightAt(ringDir.x * sphereRadius, ringDir.y * sphereRadius, ringDir.z * sphereRadius);
-
-        const platformGeo = new THREE.CylinderGeometry(8, 8, 0.5, 32);
-        this.geometries.push(platformGeo);
-        const platform = new THREE.Mesh(platformGeo, darkRockMat);
-        platform.position.copy(ringDir).multiplyScalar(sphereRadius + ringOffset + 0.25);
-        platform.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), ringDir);
-        collisionObjects.push(platform);
-        scene.add(platform);
-
-        const markerGeo = new THREE.RingGeometry(1, 1.5, 32);
-        this.geometries.push(markerGeo);
-        const marker = new THREE.Mesh(markerGeo, antennaMat);
-        marker.position.copy(ringDir).multiplyScalar(sphereRadius + ringOffset + 0.55);
-        marker.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), ringDir);
-        marker.rotateX(-Math.PI / 2);
-        collisionObjects.push(marker);
-        scene.add(marker);
-
-        // ------ 10-11: Aufnehmbare Marssteine (GLB) ------
+        // ------ 10-11: Marssteine ------
         this.loadPickableStone('assets/Marsstein1.glb', scene, terrainService, { x: 15, z: 25 }, sphereRadius);
         this.loadPickableStone('assets/Marsstein2.glb', scene, terrainService, { x: -20, z: 20 }, sphereRadius);
 
@@ -281,7 +243,7 @@ export class StructuresService {
             path,
             (gltf) => {
                 const stone = gltf.scene;
-                stone.userData['pickable'] = true; // Markieren als aufnehmbar
+                stone.userData['pickable'] = true;
 
                 stone.traverse((child) => {
                     if ((child as THREE.Mesh).isMesh) {
@@ -311,7 +273,6 @@ export class StructuresService {
         return this.pickableStones;
     }
 
-    /** Aufräumen aller Geometrien und Materialien */
     dispose(): void {
         this.geometries.forEach(g => g.dispose());
         this.materials.forEach(m => m.dispose());

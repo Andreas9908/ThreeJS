@@ -44,23 +44,24 @@ export class RoverService {
   }
 
   public setMoveSpeed(moveSpeed: number) {
-      this.moveSpeed = moveSpeed;
-      this.wheelRotationSpeed = moveSpeed;
-    }
+    this.moveSpeed = moveSpeed;
+    this.wheelRotationSpeed = moveSpeed;
+  }
 
-  /** Setzt die Objekte, mit denen der Rover kollidieren kann */
+  public setTurnSpeed(turnSpeed: number) {
+    this.turnSpeed = turnSpeed;
+  }
+
   public setCollisionObjects(objects: THREE.Object3D[]) {
     this.collisionObjects = objects;
   }
 
-  /** Setzt die aufnehmbaren Steine */
   public setPickableStones(stones: THREE.Object3D[]) {
     this.pickableStones = stones;
   }
 
   create(scene: THREE.Scene): THREE.Group {
     this.group = new THREE.Group();
-    // Spawnposition geändert: 30 Einheiten südlich vom Nordpol (wo die Kuppel ist)
     this.group.position.set(0, 102, 30);
 
     scene.add(this.group);
@@ -110,11 +111,8 @@ export class RoverService {
 
 
         const box = new THREE.Box3().setFromObject(this.model);
-        // Kleiner Abzug (0.05) damit die Räder minimal einsinken und nicht schweben
         this.yOffset = -box.min.y - 0.05;
 
-        // Verschiebe das Modell so, dass die Unterseite (Räder) bei y=0 in der lokalen Gruppe liegen
-        // Dadurch rotiert der Rover um seinen Bodenkontaktpunkt statt um sein Zentrum.
         this.model.position.y = this.yOffset;
 
         this.group.add(this.model);
@@ -141,7 +139,6 @@ export class RoverService {
     this.handleCamera(delta);
     this.handleArm(delta);
 
-    // Matrizen aktualisieren, damit die Weltpositionen für das Aufnehmen von Steinen aktuell sind
     this.group.updateMatrixWorld(true);
 
     this.handleStonePickup();
@@ -161,19 +158,15 @@ export class RoverService {
     }
 
     if (moveDir !== 0) {
-      // Speichere alte Position für Kollisionsrückgängig
       const oldPosition = this.group.position.clone();
       const oldQuaternion = this.group.quaternion.clone();
 
       this.group.translateZ(moveDir * this.moveSpeed * delta);
 
-      // Prüfe Kollision
       if (this.checkCollision()) {
-        // Kollision erkannt - Position zurücksetzen
         this.group.position.copy(oldPosition);
         this.group.quaternion.copy(oldQuaternion);
       } else {
-        // Keine Kollision - Räder drehen
         this.wheels.forEach(wheel => {
           wheel.rotation.x += moveDir * this.wheelRotationSpeed * delta;
         });
@@ -190,8 +183,6 @@ export class RoverService {
     const terrainNormal = terrainInfo.normal;
     const avgHeight = terrainInfo.avgHeight;
 
-    // Setze die Position der Gruppe exakt auf die Geländeoberfläche (Durchschnittshöhe für Stabilität)
-    // Ziehe yOffset ab, da das Modell innerhalb der Gruppe bereits nach oben verschoben ist
     this.group.position.copy(sphereNormal).multiplyScalar(radius + avgHeight - this.yOffset);
 
     const currentForward = new THREE.Vector3(0, 0, 1).applyQuaternion(this.group.quaternion);
@@ -209,13 +200,11 @@ export class RoverService {
   }
 
   private calculateTerrainNormal(pos: THREE.Vector3, sphereNormal: THREE.Vector3, radius: number): { normal: THREE.Vector3, avgHeight: number } {
-    // Ein Epsilon, das etwa der Größe des Rovers entspricht für stabile Neigung
     const epsilon = 1.5;
 
     const tangent1 = new THREE.Vector3();
     const tangent2 = new THREE.Vector3();
 
-    // Basis-Tangenten auf der Kugeloberfläche berechnen
     if (Math.abs(sphereNormal.y) < 0.9) {
       tangent1.set(0, 1, 0).cross(sphereNormal).normalize();
     } else {
@@ -225,7 +214,6 @@ export class RoverService {
 
     const getHeight = (dir: THREE.Vector3) => this.terrainService.getHeightAt(dir.x, dir.y, dir.z);
 
-    // 5 Punkte abfragen: Mitte + 4 Punkte im Kreuz (vorne, hinten, links, rechts)
     const h0 = getHeight(sphereNormal);
     const h1 = getHeight(sphereNormal.clone().add(tangent1.clone().multiplyScalar(epsilon)).normalize());
     const h2 = getHeight(sphereNormal.clone().add(tangent1.clone().multiplyScalar(-epsilon)).normalize());
@@ -237,14 +225,11 @@ export class RoverService {
     const p3 = sphereNormal.clone().add(tangent2.clone().multiplyScalar(epsilon)).normalize().multiplyScalar(radius + h3);
     const p4 = sphereNormal.clone().add(tangent2.clone().multiplyScalar(-epsilon)).normalize().multiplyScalar(radius + h4);
 
-    // Vektoren aufspannen (Links->Rechts und Hinten->Vorne)
     const vX = p1.sub(p2);
     const vZ = p3.sub(p4);
 
-    // Kreuzprodukt für die Normale
     const normal = new THREE.Vector3().crossVectors(vX, vZ).normalize();
 
-    // Sicherstellen, dass die Normale nach außen zeigt (weg vom Planetenkern)
     if (normal.dot(sphereNormal) < 0) {
       normal.negate();
     }
@@ -297,16 +282,11 @@ export class RoverService {
     }
   }
 
-  /**
-   * Prüft ob der Rover mit einem der Kollisionsobjekte kollidiert.
-   * Verwendet Raycasting in 8 Richtungen um den Rover herum.
-   */
   private checkCollision(): boolean {
     if (this.collisionObjects.length === 0) return false;
 
     const roverPos = this.group.position.clone();
 
-    // Prüfe in 8 Richtungen (Kreuz + Diagonalen) um den Rover
     const directions = [
       new THREE.Vector3(1, 0, 0),   // Rechts
       new THREE.Vector3(-1, 0, 0),  // Links
@@ -319,7 +299,6 @@ export class RoverService {
     ];
 
     for (const direction of directions) {
-      // Transformiere Richtung in Weltkoordinaten (relativ zur Rover-Rotation)
       const worldDir = direction.clone().applyQuaternion(this.group.quaternion);
 
       this.raycaster.set(roverPos, worldDir);
@@ -328,64 +307,47 @@ export class RoverService {
       const intersects = this.raycaster.intersectObjects(this.collisionObjects, true);
 
       if (intersects.length > 0 && intersects[0].distance < this.roverRadius) {
-        return true; // Kollision erkannt
+        return true;
       }
     }
 
-    return false; // Keine Kollision
+    return false;
   }
 
-  /**
-   * Prüft ob die Finger geschlossen sind (Greif-Bewegung)
-   */
   private areFingersClosing(): boolean {
-    return this.keys['KeyI']; // Taste I schließt die Finger
+    return this.keys['KeyI'];
   }
 
-  /**
-   * Überwacht kontinuierlich das Schließen der Finger für Aufnehmen/Ablegen
-   */
   private handleStonePickup(): void {
     const isClosing = this.keys['KeyI'];
     const isOpening = this.keys['KeyK'];
 
-    // Stein aufnehmen, wenn 'I' gedrückt wird (und wir noch keinen halten)
     if (isClosing && !this.heldStone) {
       this.pickupStone();
     }
 
-    // Stein ablegen, wenn 'K' gedrückt wird (und wir einen halten)
     if (isOpening && this.heldStone) {
       this.dropStone();
     }
 
-    // Wenn ein Stein gehalten wird, aktualisiere seine Position kontinuierlich
     if (this.heldStone && this.fingerL && this.fingerR) {
       this.updateHeldStonePosition();
     }
   }
 
-  /**
-   * Aktualisiert die Position des gehaltenen Steins zwischen den Fingern
-   */
   private updateHeldStonePosition(): void {
     if (!this.heldStone || !this.fingerL || !this.fingerR || !this.armHandgelenk || !this.gripGroup) return;
 
-    // Wir rufen updateMatrixWorld für das Modell auf, um sicherzustellen, dass die Bone-Hierarchie aktuell ist
-    // Dies ist wichtig, wenn Animationen oder manuelle Gelenkbewegungen stattfinden.
     if (this.model) this.model.updateMatrixWorld(true);
 
-    // Hole die Weltpositionen der Finger
     const fingerLWorldPos = new THREE.Vector3();
     const fingerRWorldPos = new THREE.Vector3();
     this.fingerL.getWorldPosition(fingerLWorldPos);
     this.fingerR.getWorldPosition(fingerRWorldPos);
 
-    // Berechne Mittelpunkt in Weltkoordinaten
     const gripCenterWorld = new THREE.Vector3();
     gripCenterWorld.addVectors(fingerLWorldPos, fingerRWorldPos).multiplyScalar(0.5);
 
-    // Konvertiere zu lokalen Koordinaten des Handgelenks
     const handgelenkWorldPos = new THREE.Vector3();
     this.armHandgelenk.getWorldPosition(handgelenkWorldPos);
 
@@ -394,17 +356,14 @@ export class RoverService {
 
     const localGripPos = gripCenterWorld.clone().applyMatrix4(handgelenkInverse);
 
-    // Setze Position der Grip-Gruppe
     this.gripGroup.position.copy(localGripPos);
 
-    // Erzwinge Matrix-Update
     this.gripGroup.updateMatrixWorld(true);
   }
 
   private pickupStone(): void {
     if (!this.fingerL || !this.fingerR || !this.armHandgelenk) return;
 
-    // Berechne die Mitte zwischen den beiden Fingern in Weltkoordinaten
     const gripCenter = new THREE.Vector3();
     const fingerLPos = new THREE.Vector3();
     const fingerRPos = new THREE.Vector3();
@@ -413,14 +372,12 @@ export class RoverService {
     this.fingerR.getWorldPosition(fingerRPos);
     gripCenter.addVectors(fingerLPos, fingerRPos).multiplyScalar(0.5);
 
-    // Suche nach dem nächsten Stein in Reichweite
     let closestStone: THREE.Object3D | null = null;
     let closestDistance = this.pickupRange;
 
     for (const stone of this.pickableStones) {
       if (stone.userData['pickedUp']) continue;
 
-      // Hole die Weltposition des Steins
       const stoneWorldPos = new THREE.Vector3();
       stone.getWorldPosition(stoneWorldPos);
 
@@ -437,15 +394,12 @@ export class RoverService {
 
       console.log('Stein gefunden und wird aufgenommen:', closestStone);
 
-      // Speichere die ursprüngliche Skalierung des Steins
       const originalScale = closestStone.scale.clone();
       closestStone.userData['originalScale'] = originalScale;
 
-      // Erstelle eine Gruppe zwischen den Fingern
       this.gripGroup = new THREE.Group();
       this.armHandgelenk.add(this.gripGroup);
 
-      // Berechne die initiale Position zwischen den Fingern
       const fingerLWorldPos = new THREE.Vector3();
       const fingerRWorldPos = new THREE.Vector3();
       this.fingerL.getWorldPosition(fingerLWorldPos);
@@ -454,7 +408,6 @@ export class RoverService {
       const gripCenterWorld = new THREE.Vector3();
       gripCenterWorld.addVectors(fingerLWorldPos, fingerRWorldPos).multiplyScalar(0.5);
 
-      // Konvertiere zu lokalen Koordinaten des Handgelenks
       const handgelenkInverse = new THREE.Matrix4();
       handgelenkInverse.copy(this.armHandgelenk.matrixWorld).invert();
       const localGripPos = gripCenterWorld.clone().applyMatrix4(handgelenkInverse);
@@ -481,20 +434,16 @@ export class RoverService {
     stone.getWorldPosition(worldPos);
     stone.getWorldQuaternion(worldQuat);
 
-    // Hole die ursprüngliche Skalierung
     const originalScale = stone.userData['originalScale'] || new THREE.Vector3(2, 2, 2);
 
-    // Stein zurück zur Szene
     if (this.group.parent) {
       this.group.parent.add(stone);
     }
 
-    // Position, Rotation und Skalierung in Weltkoordinaten wiederherstellen
     stone.position.copy(worldPos);
     stone.quaternion.copy(worldQuat);
     stone.scale.copy(originalScale);
 
-    // Entferne die Grip-Gruppe
     this.gripGroup.removeFromParent();
     this.gripGroup = null;
 

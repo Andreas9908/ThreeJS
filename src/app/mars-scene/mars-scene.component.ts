@@ -32,7 +32,6 @@ export class MarsSceneComponent implements AfterViewInit, OnDestroy {
     @ViewChild('canvas', { static: true })
     canvasRef!: ElementRef<HTMLCanvasElement>;
 
-    // Three.js Kern-Objekte
     private renderer!: THREE.WebGLRenderer;
     private scene!: THREE.Scene;
     private camera!: THREE.PerspectiveCamera;
@@ -49,10 +48,6 @@ export class MarsSceneComponent implements AfterViewInit, OnDestroy {
         private roverService: RoverService
     ) { }
 
-    // ====================================================================
-    // Lifecycle
-    // ====================================================================
-
     ngAfterViewInit(): void {
         this.initScene();
         this.initFog();
@@ -60,19 +55,15 @@ export class MarsSceneComponent implements AfterViewInit, OnDestroy {
         this.initRenderer();
         this.initControls();
 
-    // Services aufrufen
     const terrainMesh = this.terrainService.create(this.scene);
     const collisionObjects = this.structuresService.create(this.scene, this.terrainService);
     this.lightingService.create(this.scene);
     this.roverService.create(this.scene);
 
-    // Kollisionsobjekte an Rover übergeben
     this.roverService.setCollisionObjects(collisionObjects);
 
-    // Aufnehmbare Steine an Rover übergeben
     this.roverService.setPickableStones(this.structuresService.getPickableStones());
 
-        // GUI als letztes (braucht Referenzen auf andere Services)
         this.guiService.create(
             this.scene,
             this.lightingService,
@@ -80,42 +71,31 @@ export class MarsSceneComponent implements AfterViewInit, OnDestroy {
             this.roverService
         );
 
-        // Sterne im Hintergrund
         this.createStars();
 
-        // Resize-Listener
         window.addEventListener('resize', this.onResize);
 
-        // Render-Loop AUSSERHALB von Angular Zone
         this.ngZone.runOutsideAngular(() => this.animate());
     }
 
     ngOnDestroy(): void {
-        // Animation stoppen
         cancelAnimationFrame(this.animationId);
 
-        // Resize-Listener entfernen
         window.removeEventListener('resize', this.onResize);
 
-        // Services aufräumen
         this.terrainService.dispose();
         this.structuresService.dispose();
         this.lightingService.dispose();
         this.guiService.dispose();
         this.roverService.dispose();
 
-        // Controls & Renderer
         this.controls?.dispose();
         this.renderer?.dispose();
     }
 
-    // ====================================================================
-    // Initialisierung
-    // ====================================================================
-
     private initScene(): void {
         this.scene = new THREE.Scene();
-        this.scene.background = new THREE.Color(0x331a0d); // Rötlich-dunkler Marshimmel
+        this.scene.background = new THREE.Color(0x331a0d);
     }
 
     private initFog(): void {
@@ -149,15 +129,10 @@ export class MarsSceneComponent implements AfterViewInit, OnDestroy {
         this.controls = new OrbitControls(this.camera, this.renderer.domElement);
         this.controls.enableDamping = true;
         this.controls.dampingFactor = 0.08;
-        // polarAngleLimit entfernt, damit man um die Kugel herum fliegen kann
         this.controls.minDistance = 5;
         this.controls.maxDistance = 500;
         this.controls.target.set(0, 0, 0);
     }
-
-    // ====================================================================
-    // Sterne-Hintergrund
-    // ====================================================================
 
     private starGeometry!: THREE.BufferGeometry;
     private starMaterial!: THREE.PointsMaterial;
@@ -189,31 +164,20 @@ export class MarsSceneComponent implements AfterViewInit, OnDestroy {
         this.scene.add(stars);
     }
 
-    // ====================================================================
-    // Animation / Render Loop
-    // ====================================================================
-
     private animate = (): void => {
         this.animationId = requestAnimationFrame(this.animate);
 
         const delta = this.clock.getDelta();
 
-        // Controls aktualisieren (für Damping)
         this.controls.update();
 
-        // Rover aktualisieren
         this.roverService.update(delta);
         if (this.roverService.getPosition()) {
           this.controls.target.copy(this.roverService.getPosition());
         }
 
-        // Renderer
         this.renderer.render(this.scene, this.camera);
     };
-
-    // ====================================================================
-    // Resize-Handler
-    // ====================================================================
 
     private onResize = (): void => {
         const canvas = this.canvasRef.nativeElement;

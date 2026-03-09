@@ -5,12 +5,6 @@ import { LightingService } from './lighting.service';
 import { TerrainService } from './terrain.service';
 import { RoverService } from './rover.service';
 
-/**
- * GuiService – Erstellt ein dat.gui Panel zur Echtzeit-Steuerung von:
- * - Lichtintensität (Sonne + Basis-Lichter)
- * - Nebeldichte (FogExp2)
- * - Terrain-Detail-Einstellungen
- */
 @Injectable({ providedIn: 'root' })
 export class GuiService {
 
@@ -72,12 +66,18 @@ export class GuiService {
             const roverFolder = this.gui.addFolder('Rover');
 
             const roverParams = {
-                speed: 5.0
+                speed: 5.0,
+                turnSpeed: 2.0
             };
             roverFolder.add(roverParams, 'speed', 0.5, 15, 0.5)
                 .name('Geschwindigkeit')
                 .onChange((val: number) => {
                     roverService.setMoveSpeed(val);
+                });
+            roverFolder.add(roverParams, 'turnSpeed', 0.5, 10, 0.5)
+                .name('Drehgeschwindigkeit')
+                .onChange((val: number) => {
+                    roverService.setTurnSpeed(val);
                 });
             roverFolder.open();
         }
