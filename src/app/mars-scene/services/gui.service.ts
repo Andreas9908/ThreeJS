@@ -93,6 +93,28 @@ export class GuiService {
                     roverService.setTurnSpeed(val);
                 });
             roverFolder.open();
+
+            const controlFolder = this.gui.addFolder('Steuerung (Rover)');
+            const controls = {
+                move: 'W / S',
+                turn: 'A / D',
+                cam: 'Pfeiltasten L / R',
+                armBase: 'Q / E',
+                armShoulder: 'R / F',
+                armElbow: 'T / G',
+                armWrist: 'U / J',
+                gripper: 'I / K'
+            };
+
+            controlFolder.add(controls, 'move').name('Vor / Zurück');
+            controlFolder.add(controls, 'turn').name('Links / Rechts drehen');
+            controlFolder.add(controls, 'cam').name('Kamera drehen');
+            controlFolder.add(controls, 'armBase').name('Arm: Basis');
+            controlFolder.add(controls, 'armShoulder').name('Arm: Schulter');
+            controlFolder.add(controls, 'armElbow').name('Arm: Ellenbogen');
+            controlFolder.add(controls, 'armWrist').name('Arm: Handgelenk');
+            controlFolder.add(controls, 'gripper').name('Greifer: Auf / Zu');
+            controlFolder.open();
         }
 
     }
