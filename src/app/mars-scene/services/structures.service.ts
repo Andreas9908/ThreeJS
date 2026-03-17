@@ -65,7 +65,7 @@ export class StructuresService {
         return mat;
     }
 
-    /** 5. Antennen-Material (leicht emissiv) */
+    /** 5. Antennen-Material */
     private createAntennaMaterial(): THREE.MeshStandardMaterial {
         const mat = new THREE.MeshStandardMaterial({
             color: 0xCCCCCC,
@@ -129,12 +129,16 @@ export class StructuresService {
         const domeGeo = new THREE.SphereGeometry(6, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2);
         this.geometries.push(domeGeo);
         const domeMesh = new THREE.Mesh(domeGeo, glassMat);
+        domeMesh.castShadow = true;
+        domeMesh.receiveShadow = true;
         habitatGroup.add(domeMesh);
 
         // Basis-Ring der Kuppel
         const baseRingGeo = new THREE.CylinderGeometry(6, 6.2, 1.5, 32);
         this.geometries.push(baseRingGeo);
         const baseRingMesh = new THREE.Mesh(baseRingGeo, metalMat);
+        baseRingMesh.castShadow = true;
+        baseRingMesh.receiveShadow = true;
         baseRingMesh.position.y = 0.5;
         habitatGroup.add(baseRingMesh);
 
@@ -156,6 +160,8 @@ export class StructuresService {
             const bodyGeo = new THREE.CylinderGeometry(2.2, 2.2, 5, 16);
             this.geometries.push(bodyGeo);
             const body = new THREE.Mesh(bodyGeo, metalMat);
+            body.castShadow = true;
+            body.receiveShadow = true;
             body.rotation.z = Math.PI / 2;
             modGroup.add(body);
 
@@ -166,11 +172,15 @@ export class StructuresService {
             this.materials.push(panelMat);
 
             const panel1 = new THREE.Mesh(panelGeo, panelMat);
+            panel1.castShadow = true;
+            panel1.receiveShadow = true;
             panel1.position.set(0, 2, 1.5);
             panel1.rotation.x = 0.5;
             modGroup.add(panel1);
 
             const panel2 = new THREE.Mesh(panelGeo, panelMat);
+            panel2.castShadow = true;
+            panel2.receiveShadow = true;
             panel2.position.set(0, 2, -1.5);
             panel2.rotation.x = -0.5;
             modGroup.add(panel2);
@@ -189,6 +199,8 @@ export class StructuresService {
         const mastGeo = new THREE.CylinderGeometry(0.3, 0.5, 10, 8);
         this.geometries.push(mastGeo);
         const mast = new THREE.Mesh(mastGeo, metalMat);
+        mast.castShadow = true;
+        mast.receiveShadow = true;
         mast.position.y = 5;
         antGroup.add(mast);
 
@@ -196,6 +208,8 @@ export class StructuresService {
         const dishGeo = new THREE.SphereGeometry(2, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2);
         this.geometries.push(dishGeo);
         const dish = new THREE.Mesh(dishGeo, metalMat);
+        dish.castShadow = true;
+        dish.receiveShadow = true;
         dish.position.y = 10;
         dish.rotation.x = -Math.PI / 4;
         antGroup.add(dish);
@@ -222,11 +236,12 @@ export class StructuresService {
         const boxGeo = new THREE.BoxGeometry(4, 3, 6);
         this.geometries.push(boxGeo);
         const boxMesh = new THREE.Mesh(boxGeo, metalMat);
+        boxMesh.castShadow = true;
+        boxMesh.receiveShadow = true;
         const boxDir = new THREE.Vector3(-15, sphereRadius, -10).normalize();
         const boxOffset = terrainService.getHeightAt(boxDir.x * sphereRadius, boxDir.y * sphereRadius, boxDir.z * sphereRadius);
         boxMesh.position.copy(boxDir).multiplyScalar(sphereRadius + boxOffset + 1.5);
         boxMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), boxDir);
-        boxMesh.castShadow = true;
         collisionObjects.push(boxMesh);
         scene.add(boxMesh);
 

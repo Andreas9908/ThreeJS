@@ -16,16 +16,18 @@ export class LightingService {
         scene.add(this.ambientLight);
 
         this.sunLight = new THREE.DirectionalLight(0xFFDDCC, 1.8);
-        this.sunLight.position.set(50, 80, -30);
+        this.sunLight.position.set(100, 150, -50);
         this.sunLight.castShadow = true;
-        this.sunLight.shadow.mapSize.width = 2048;
-        this.sunLight.shadow.mapSize.height = 2048;
-        this.sunLight.shadow.camera.near = 0.5;
-        this.sunLight.shadow.camera.far = 200;
-        this.sunLight.shadow.camera.left = -60;
-        this.sunLight.shadow.camera.right = 60;
-        this.sunLight.shadow.camera.top = 60;
-        this.sunLight.shadow.camera.bottom = -60;
+        this.sunLight.shadow.mapSize.width = 4096;
+        this.sunLight.shadow.mapSize.height = 4096;
+        this.sunLight.shadow.camera.near = 1;
+        this.sunLight.shadow.camera.far = 400;
+        this.sunLight.shadow.camera.left = -150;
+        this.sunLight.shadow.camera.right = 150;
+        this.sunLight.shadow.camera.top = 150;
+        this.sunLight.shadow.camera.bottom = -150;
+        this.sunLight.shadow.bias = -0.0001;
+        this.sunLight.shadow.normalBias = 0.05;
         scene.add(this.sunLight);
 
         const pointConfigs = [
@@ -37,6 +39,8 @@ export class LightingService {
             const light = new THREE.PointLight(cfg.color, cfg.intensity, 40, 1.5);
             light.position.set(cfg.x, cfg.y, cfg.z);
             light.castShadow = true;
+            light.shadow.bias = -0.0005;
+            light.shadow.normalBias = 0.02;
             this.baseLights.push(light);
             scene.add(light);
         });
@@ -46,6 +50,8 @@ export class LightingService {
         this.spotLight.position.set(20, 5, 15);
         this.spotLight.target.position.set(10, 0, 5);
         this.spotLight.castShadow = true;
+        this.spotLight.shadow.bias = -0.0005;
+        this.spotLight.shadow.normalBias = 0.02;
         scene.add(this.spotLight);
         scene.add(this.spotLight.target);
     }

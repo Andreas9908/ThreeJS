@@ -6,7 +6,7 @@ import * as THREE from 'three';
 export class TerrainService {
 
   private mesh!: THREE.Mesh;
-  private material!: THREE.ShaderMaterial;
+  private material!: THREE.MeshStandardMaterial;
   private geometry!: THREE.SphereGeometry;
   private textures: THREE.Texture[] = [];
   private heightData: Uint8ClampedArray | null = null;
@@ -26,26 +26,14 @@ export class TerrainService {
     });
     const normalMap = this.loadTexture(loader, 'assets/textures/mars-normalmap.png', false);
 
-    this.material = new THREE.ShaderMaterial({
-      uniforms: {
-        uColorMap: { value: colorMap },
-        uHeightMap: { value: heightMap },
-        uNormalMap: { value: normalMap },
-        uDisplacementScale: { value: this.displacementScale },
-        uNormalStrength: { value: 1.5 },
-        uRoughness: { value: 0.92 },
-        uMetalness: { value: 0.05 },
-
-        uSunDirection: { value: new THREE.Vector3(0.5, 0.8, 0.3).normalize() },
-        uSunColor: { value: new THREE.Color(1.0, 0.95, 0.85) },
-        uSunIntensity: { value: 2.0 },
-        uAmbientColor: { value: new THREE.Color(0.25, 0.12, 0.08) },
-
-        uFogColor: { value: new THREE.Color(0x331a0d) },
-        uFogDensity: { value: 0.008 },
-      },
-      vertexShader: this.getVertexShader(),
-      fragmentShader: this.getFragmentShader(),
+    this.material = new THREE.MeshStandardMaterial({
+      map: colorMap,
+      displacementMap: heightMap,
+      displacementScale: this.displacementScale,
+      normalMap: normalMap,
+      normalScale: new THREE.Vector2(1.5, 1.5),
+      roughness: 0.92,
+      metalness: 0.05,
       side: THREE.DoubleSide,
     });
 
@@ -57,14 +45,14 @@ export class TerrainService {
     return this.mesh;
   }
 
-  getMaterial(): THREE.ShaderMaterial {
+  getMaterial(): THREE.MeshStandardMaterial {
     return this.material;
   }
 
   setDisplacementScale(val: number): void {
     this.displacementScale = val;
     if (this.material) {
-      this.material.uniforms['uDisplacementScale'].value = val;
+      this.material.displacementScale = val;
     }
   }
 
@@ -78,8 +66,6 @@ export class TerrainService {
     const ny = y / length;
     const nz = z / length;
 
-    // Match THREE.SphereGeometry UV mapping:
-    // x = -cos(phi) * sin(theta), z = sin(phi) * sin(theta), u = phi / (2*pi)
     let phi = Math.atan2(nz, -nx);
     if (phi < 0) {
       phi += Math.PI * 2;
@@ -115,158 +101,6 @@ export class TerrainService {
     this.geometry?.dispose();
     this.material?.dispose();
     this.textures.forEach(t => t.dispose());
-  }
-
-  // ====================================================================
-  // Vertex Shader
-  // ====================================================================
-
-  private getVertexShader(): string {
-    return /* glsl */ `
-      uniform sampler2D uHeightMap;
-      uniform float uDisplacementScale;
-
-      varying vec2 vUv;
-      varying vec3 vWorldPosition;
-      varying vec3 vNormal;
-      varying vec3 vViewDir;
-      varying vec3 vObjectPosition;
-
-      void main() {
-        vUv = uv;
-        vObjectPosition = position;
-
-        float height = texture2D(uHeightMap, uv).r;
-        vec3 displaced = position + normalize(position) * height * uDisplacementScale;
-
-        vec4 worldPos = modelMatrix * vec4(displaced, 1.0);
-        vWorldPosition = worldPos.xyz;
-
-        vNormal = normalize(normalMatrix * normalize(position));
-        vViewDir = normalize(cameraPosition - worldPos.xyz);
-
-        gl_Position = projectionMatrix * viewMatrix * worldPos;
-      }
-    `;
-  }
-
-  // ====================================================================
-  // Fragment Shader
-  // ====================================================================
-
-  private getFragmentShader(): string {
-    return /* glsl */ `
-      uniform sampler2D uColorMap;
-      uniform sampler2D uHeightMap;
-      uniform sampler2D uNormalMap;
-
-      uniform float uNormalStrength;
-      uniform float uRoughness;
-      uniform float uMetalness;
-
-      uniform vec3 uSunDirection;
-      uniform vec3 uSunColor;
-      uniform float uSunIntensity;
-      uniform vec3 uAmbientColor;
-
-      uniform vec3 uFogColor;
-      uniform float uFogDensity;
-
-      varying vec2 vUv;
-      varying vec3 vWorldPosition;
-      varying vec3 vNormal;
-      varying vec3 vViewDir;
-      varying vec3 vObjectPosition;
-
-      vec3 perturbNormal(vec3 baseNormal, vec3 detailNormal, float strength, vec3 objPos) {
-        vec3 dn = detailNormal * 2.0 - 1.0;
-        dn.xy *= strength;
-
-        vec3 t = normalize(cross(vec3(0.0, 1.0, 0.0), baseNormal));
-        if (length(t) < 0.001) {
-            t = vec3(1.0, 0.0, 0.0);
-        }
-        vec3 b = cross(baseNormal, t);
-
-        return normalize(t * dn.x + b * dn.y + baseNormal * dn.z);
-      }
-
-      void main() {
-        vec3 baseColor = texture2D(uColorMap, vUv).rgb;
-
-        vec3 normalFromMap = texture2D(uNormalMap, vUv).rgb;
-        vec3 normal = perturbNormal(vNormal, normalFromMap, uNormalStrength, vObjectPosition);
-
-        float NdotL = max(dot(normal, uSunDirection), 0.0);
-        vec3 diffuse = baseColor * uSunColor * NdotL * uSunIntensity;
-
-        vec3 ambient = baseColor * uAmbientColor;
-
-        vec3 halfDir = normalize(uSunDirection + vViewDir);
-        float NdotH = max(dot(normal, halfDir), 0.0);
-        float specPower = mix(8.0, 64.0, 1.0 - uRoughness);
-        float spec = pow(NdotH, specPower) * (1.0 - uRoughness) * 0.3;
-        vec3 specColor = uSunColor * spec * uSunIntensity;
-
-        float h = texture2D(uHeightMap, vUv).r;
-        float heightTint = mix(0.75, 1.15, h);
-
-        vec3 finalColor = (diffuse + ambient + specColor) * heightTint;
-
-        float dist = length(vWorldPosition - cameraPosition);
-        float fogFactor = 1.0 - exp(-uFogDensity * uFogDensity * dist * dist);
-        fogFactor = clamp(fogFactor, 0.0, 1.0);
-        finalColor = mix(finalColor, uFogColor, fogFactor);
-
-        finalColor = finalColor / (finalColor + vec3(1.0));
-
-        finalColor = pow(finalColor, vec3(1.0 / 2.2));
-
-        gl_FragColor = vec4(finalColor, 1.0);
-      }
-    `;
-  }
-
-  private fbmNoise(x: number, y: number, size: number, octaves: number, persistence: number): number {
-    let value = 0;
-    let amplitude = 1;
-    let frequency = 1 / 64;
-    let maxValue = 0;
-
-    for (let i = 0; i < octaves; i++) {
-      value += this.valueNoise(x * frequency, y * frequency) * amplitude;
-      maxValue += amplitude;
-      amplitude *= persistence;
-      frequency *= 2;
-    }
-
-    return value / maxValue;
-  }
-
-  private valueNoise(x: number, y: number): number {
-    const ix = Math.floor(x);
-    const iy = Math.floor(y);
-    const fx = x - ix;
-    const fy = y - iy;
-
-    const sx = fx * fx * (3 - 2 * fx);
-    const sy = fy * fy * (3 - 2 * fy);
-
-    const n00 = this.hash2d(ix, iy);
-    const n10 = this.hash2d(ix + 1, iy);
-    const n01 = this.hash2d(ix, iy + 1);
-    const n11 = this.hash2d(ix + 1, iy + 1);
-
-    const nx0 = n00 * (1 - sx) + n10 * sx;
-    const nx1 = n01 * (1 - sx) + n11 * sx;
-    return nx0 * (1 - sy) + nx1 * sy;
-  }
-
-  private hash2d(x: number, y: number): number {
-    let h = x * 374761393 + y * 668265263;
-    h = (h ^ (h >> 13)) * 1274126177;
-    h = h ^ (h >> 16);
-    return (h & 0x7fffffff) / 0x7fffffff;
   }
 
   private loadTexture(loader: THREE.TextureLoader, url: string, repeat: boolean, onLoad?: (tex: THREE.Texture) => void): THREE.Texture {

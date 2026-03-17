@@ -65,12 +65,12 @@ export class GuiService {
         if (terrainService) {
             const terrainFolder = this.gui.addFolder('Gelände');
             const terrainParams = {
-                normalStrength: terrainService.getMaterial().uniforms['uNormalStrength'].value
+                normalStrength: 1.5
             };
             terrainFolder.add(terrainParams, 'normalStrength', 0, 5, 0.1)
                 .name('Normalen-Stärke')
                 .onChange((val: number) => {
-                    terrainService.getMaterial().uniforms['uNormalStrength'].value = val;
+                    terrainService.getMaterial().normalScale.set(val, val);
                 });
             terrainFolder.open();
         }
